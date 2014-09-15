@@ -1,6 +1,0 @@
----
-  globals:
-    beforeEach: true
-    describe: true
-    it: true
-    expect: true
