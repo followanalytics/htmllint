@@ -67,8 +67,11 @@
     
     <section>
         <article>
-            <pre class="sunlight-highlight-javascript linenums">var lodash = require('lodash'),
-    Parser = require('./parser');
+            <pre class="sunlight-highlight-javascript linenums">var bulk = require('bulk-require'),
+    lodash = require('lodash'),
+    Parser = require('./parser'),
+    path = require('path');
+var envs = bulk(path.join(__dirname, '/envs'), '*.js');
 
 /**
  * A linter is configured with a set of rules that are fed the raw
@@ -81,74 +84,141 @@ var Linter = function (rules) {
 };
 module.exports = Linter;
 
+/**
+ * @function
+ * @name addRule
+ * @param {rule} rule - your custom rule to add.
+ * Assigns a rule to the Linter's rule object.
+ */
 Linter.prototype.addRule = function (rule) {
     this.rules[rule.name] = rule;
 };
 
-Linter.prototype.lint = function (html, opts) {
-    opts = opts || {};
-    var dom = null,
-        scanIssues = null,
-        domIssues = null,
-        maxerr = (opts ? opts.maxerr : null) || 30;
+/**
+ * @function
+ * @name lint
+ * @param {string} html - the html as a string to lint.
+ * Lints the HTML with the options supplied in the environments setup.
+ */
+Linter.prototype.lint = function (html) {
+    var params = lodash.flatten(arguments),
+        opts = lodash.cloneDeep(envs.none);
 
-    // scan raw html string
-    scanIssues = this.execRules('scan', [html, opts]);
+    for (var i = 1; i &lt; params.length; i++) {
+        if ( typeof params[i] === 'string') {
+            params[i] = envs[params[i]] || {};
+        }
+    }
+
+    //we can do this because the first param is our html string
+    params[0] = opts;
+    opts = lodash.merge.apply(lodash, params);
+
+    //stuff
+    var dom = null,
+        scanIssues = [],
+        domIssues = [],
+        maxerr = (opts ? opts.maxerr : null) || 30,
+        lines = null;
+
+    // break up the html into array of objects of lines
+    lines = this.shred(html);
 
     // process dom
     dom = this.parser.parse(html);
-    domIssues = this.execRules('process', [dom, opts]);
 
-    return lodash.first(scanIssues.concat(domIssues)
-        .map(function (issue) {
-            // TODO: implement more efficiently
-            var pos = Linter.getPos(html, issue.index);
+    // Get our lines linted
+    scanIssues = this.execLines(lines, opts);
+    //scanIssues = this.execRule(lines, 'scan', null, opts);
 
-            issue.line = pos.line;
-            issue.column = pos.column;
+    // Get our DOM linted
+    domIssues = this.execDom(dom, opts);
 
-            return issue;
-        }), maxerr);
+    // call the end handler on rules
+    // TODO: create a handler subset?
+    lodash.forOwn(this.rules, function callRuleEnd(rule) {
+        if (rule.end) {
+            rule.end(opts);
+        }
+    });
+
+    // Return to sender
+    return lodash.first(scanIssues.concat(domIssues), maxerr);
 };
 
-Linter.prototype.execRules = function (funcName, args) {
-    var ruleNames = Object.keys(this.rules);
+Linter.prototype.execLines = function (lines, opts) {
+    var linter = this,
+        ruleNames = Object.keys(this.rules).filter(function (ruleName) {
+            //console.log('process');
+            return this.rules[ruleName].scan;
+        }.bind(this));
 
-    return lodash(ruleNames)
-        .map(function (ruleName) {
-            var rule = this.rules[ruleName];
+    return lodash(lines).map(function (line, index) {
+        if (index === 0) {return false;}
 
-            if (!rule[funcName]) {
-                return null;
+        // inline goes here
+
+        return lodash(ruleNames).map(function (ruleName) {
+            var rule = linter.rules[ruleName];
+            return rule.scan.apply(rule, [line, opts]);
+        }).flatten().compact().value();
+    }).flatten().compact().value();
+};
+
+Linter.prototype.execDom = function (dom, opts) {
+    var linter = this,
+        ruleNames = Object.keys(this.rules).filter(function (ruleName) {
+            return this.rules[ruleName].process;
+        }.bind(this));
+
+    var getIssues = function (element) {
+        var ret = lodash(ruleNames).map(function (ruleName) {
+            var rule = linter.rules[ruleName];
+            if (!rule.trigger || rule.trigger.indexOf(element.name) > -1) {
+                return rule.process.apply(rule, [element, opts]);
+            } else {
+                return [];
             }
+        }).flatten().compact().value();
 
-            return rule[funcName].apply(rule, args);
-        }.bind(this))
-        .flatten()
-        .compact()
-        .value();
+        if (element.children &amp;&amp; element.children.length > 0) {
+            element.children.forEach(function (child) {
+                ret = ret.concat(getIssues(child));
+            });
+        }
+        return ret;
+    };
+
+    var issues = dom.length ? dom.map(getIssues) : [];
+    return lodash.flatten(issues);
 };
 
-Linter.getPos = function (str, index) {
-    // TODO: reimplement, probs buggy
-    // TODO: write tests
-    // TODO: move out of this into some utility module perhaps?
-    var re = /\n/g,
-        row = 1, // line numbers start at 1 in most text editors
-        cursor = re.exec(str),
-        lastCursor = -1;
+/**
+ * @function
+ * @name shred
+ * @param {html} html - your html.
+ * @returns {string} the array of line objects.
+ * 'Shreds' the html by line for linting by line.
+ */
+Linter.prototype.shred = function (html) {
+    // Take the HTML string
+    // Return an array of {line, line number, index}
+    var shredder = /(.*)\n/g,
+        row = 1,
+        line = shredder.exec(html),
+        shredded = [];
 
-    while (cursor &amp;&amp; cursor.index &lt; index) {
-        // advance to the next line
-        lastCursor = cursor.index;
-        cursor = re.exec(str);
-        row += 1;
+    while (line) {
+        shredded[row] = {
+            'line': line[0],
+            'index': line.index,
+            'row': row
+        };
+        row++;
+        line = shredder.exec(html);
     }
 
-    return {
-        line: row,
-        column: index - lastCursor
-    };
+    return shredded;
 };
 </pre>
         </article>
@@ -166,7 +236,7 @@ Linter.getPos = function (str, index) {
 					
 		<span class="jsdoc-message">
 		Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.3.0-alpha5</a>
-		on Mon Sep 22 2014 10:58:21 GMT-0400 (EDT) using the <a href="https://github.com/terryweiss/docstrap">DocStrap template</a>.
+		on Mon Sep 29 2014 14:02:08 GMT-0400 (EDT) using the <a href="https://github.com/terryweiss/docstrap">DocStrap template</a>.
 		</span>
 				</footer>
 			</div>
