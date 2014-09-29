@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
 	<meta charset="utf-8">
-	<title>htmllint Class: Linter</title>
+	<title>htmllint Source: index.js</title>
 
 	<!--[if lt IE 9]>
 	<script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
@@ -57,118 +57,56 @@
 	<div class="row-fluid">
 
 		
-		<div class="span8">
-			
+			<div class="span12">
+				
 				<div id="main">
 					
 
 
-	<h1 class="page-title">Class: Linter</h1>
-<section>
+		<h1 class="page-title">Source: index.js</h1>
+    
+    <section>
+        <article>
+            <pre class="sunlight-highlight-javascript linenums">var lodash = require('lodash'),
+    requireAll = require('require-all'),
+    Linter = require('./linter');
 
-<header>
-    <h2>
-    Linter
-    </h2>
-    
-</header>
+/**
+ * The htmllint namespace.
+ * @namespace
+ */
+var htmllint = function (html, opts) {
+    return htmllint.defaultLinter.lint(html, opts);
+};
 
-<article>
-    <div class="container-overview">
-    
+module.exports = htmllint;
 
-    
-        
-<dt>
-    <h4 class="name" id="Linter"><span class="type-signature"></span>new Linter<span class="signature">()</span><span class="type-signature"></span></h4>
-    
-    
-</dt>
-<dd>
-    
-    
-    <div class="description">
-        <p>A linter is configured with a set of rules that are fed the raw<br>html and ast nodes.</p>
-    </div>
-    
+htmllint.Linter = Linter;
+htmllint.rules = lodash.values(requireAll({
+    dirname: __dirname + '/rules',
+    filter: /(.+)\.js$/
+})).reduce(function (obj, rule) {
+    obj[rule.name] = rule;
+    return obj;
+}, {});
 
-    
-    
-    
-    
-    
-    
-    
-<dl class="details">
-    
+htmllint.create = function (rules) {
+    rules = rules.map(function (rule) {
+        if (lodash.isString(rule)) {
+            // if the rule is a string, resolve the name
+            return htmllint.rules[rule];
+        }
+        return rule;
+    });
 
-    
+    return new Linter(rules);
+};
 
-    
+htmllint.defaultLinter = new Linter(htmllint.rules);
+</pre>
+        </article>
+    </section>
 
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-    <dt class="tag-source">Source:</dt>
-    <dd class="tag-source"><ul class="dummy"><li>
-        <a href="linter.js.html">linter.js</a>, <a href="linter.js.html#sunlight-1-line-9">line 9</a>
-    </li></ul></dd>
-    
-
-    
-
-    
-
-    
-</dl>
-
-    
-    
-
-    
-
-    
-    
-    
-    
-    
-    
-    
-</dd>
-
-    
-    </div>
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-</article>
-
-</section>
 
 
 
@@ -186,10 +124,6 @@
 				</footer>
 			</div>
 
-			
-			<div class="span3">
-				<div id="toc"></div>
-			</div>
 			
 			<br clear="both">
 		</div>
